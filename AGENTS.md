@@ -10,7 +10,7 @@
 - Build everything: `go build ./...`
 - Run tests and build in one pass: `go test ./... && go build ./...`
 - Run the server locally: `go run ./cmd/tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log`
-- Run the popup client from inside tmux: `tmux popup -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'`
+- Run the popup client from inside tmux: `tmux popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'`
 
 ## Runtime Boundaries
 

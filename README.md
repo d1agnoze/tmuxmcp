@@ -23,6 +23,36 @@
 go build ./...
 ```
 
+## Install
+
+Install both binaries into your Go bin directory:
+
+```bash
+go install ./cmd/tmuxmcpd ./cmd/tmuxmcp
+```
+
+Make sure `$(go env GOPATH)/bin` or `$(go env GOBIN)` is on your `PATH`.
+
+## tmux Setup
+
+Add a binding like this to `~/.tmux.conf`:
+
+```tmux
+bind-key s popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
+```
+
+Reload tmux after saving:
+
+```bash
+tmux source-file ~/.tmux.conf
+```
+
+If you prefer installed binaries instead of `go run`, use:
+
+```tmux
+bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
+```
+
 ## Verify
 
 ```bash
@@ -55,7 +85,7 @@ Flags:
 Inside tmux:
 
 ```bash
-tmux popup -E 'tmuxmcp --server http://127.0.0.1:46321'
+tmux popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 Flags:
@@ -131,12 +161,65 @@ The server exposes the following MCP metadata to connected clients during initia
 
 This matters because many MCP hosts use server instructions plus each tool's name, description, schema, title, and annotations to decide when a tool is relevant.
 
+## MCP Server Setup
+
+`tmuxmcpd` is a stdio MCP server. Start it from your MCP host by pointing the host at the `tmuxmcpd` binary.
+
+1. Install the binaries:
+
+```bash
+go install ./cmd/tmuxmcpd ./cmd/tmuxmcp
+```
+
+2. Confirm the binary is available:
+
+```bash
+tmuxmcpd --help
+```
+
+3. Add an MCP server entry in your host that runs:
+
+```bash
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+```
+
+Example generic MCP config shape:
+
+```json
+{
+  "mcpServers": {
+    "tmuxmcpd": {
+      "command": "tmuxmcpd",
+      "args": [
+        "--listen",
+        "127.0.0.1:46321",
+        "--history-lines",
+        "500",
+        "--log-file",
+        "tmuxmcpd.log"
+      ]
+    }
+  }
+}
+```
+
+If your MCP host does not inherit your shell `PATH`, replace `tmuxmcpd` with its absolute path.
+
+4. Start or reload your MCP host.
+
+5. Inside tmux, open the popup client and share a pane before asking the host to inspect terminal output.
+
+Typical MCP flow:
+
+- call `get_active_pane` first
+- call `read_active_pane` after a pane has been shared
+
 ## tmux keybinding example
 
 Add something like this to your tmux config after installing the binaries on your `PATH`:
 
 ```tmux
-bind-key s popup -E 'tmuxmcp --server http://127.0.0.1:46321'
+bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 ## Manual Testing
@@ -152,7 +235,7 @@ go run ./cmd/tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tm
 3. Launch the popup client:
 
 ```bash
-tmux popup -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
+tmux popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 4. Verify the popup can:
