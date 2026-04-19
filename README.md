@@ -25,32 +25,44 @@ go build ./...
 
 ## Install
 
-Install both binaries into your Go bin directory:
+Install both binaries into your Go bin directory with `go install`:
 
 ```bash
-go install ./cmd/tmuxmcpd ./cmd/tmuxmcp
+go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcpd@latest
+go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcp@latest
 ```
 
-Make sure `$(go env GOPATH)/bin` or `$(go env GOBIN)` is on your `PATH`.
+Make sure the Go bin directory is on your `PATH`:
+
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+If you use `GOBIN`, add that directory instead:
+
+```bash
+export PATH="$(go env GOBIN):$PATH"
+```
+
+Confirm both binaries are available:
+
+```bash
+tmuxmcpd --help
+tmuxmcp --help
+```
 
 ## tmux Setup
 
 Add a binding like this to `~/.tmux.conf`:
 
 ```tmux
-bind-key s popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
+bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 Reload tmux after saving:
 
 ```bash
 tmux source-file ~/.tmux.conf
-```
-
-If you prefer installed binaries instead of `go run`, use:
-
-```tmux
-bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 ## Verify
@@ -71,7 +83,7 @@ go test -cover ./...
 ## Run the server
 
 ```bash
-go run ./cmd/tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
 ```
 
 Flags:
@@ -85,7 +97,7 @@ Flags:
 Inside tmux:
 
 ```bash
-tmux popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
+tmux popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 Flags:
@@ -168,7 +180,8 @@ This matters because many MCP hosts use server instructions plus each tool's nam
 1. Install the binaries:
 
 ```bash
-go install ./cmd/tmuxmcpd ./cmd/tmuxmcp
+go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcpd@latest
+go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcp@latest
 ```
 
 2. Confirm the binary is available:
@@ -227,7 +240,7 @@ bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 1. Start the daemon:
 
 ```bash
-go run ./cmd/tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
 ```
 
 2. Inside tmux, open a few panes with visible output.
@@ -235,7 +248,7 @@ go run ./cmd/tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tm
 3. Launch the popup client:
 
 ```bash
-tmux popup -w 90% -h 85% -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
+tmux popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 ```
 
 4. Verify the popup can:
