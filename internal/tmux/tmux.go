@@ -81,7 +81,7 @@ func (r *CommandRunner) CapturePane(ctx context.Context, paneID string, lines in
 		return "", err
 	}
 
-	return strings.TrimRight(out, "\n"), nil
+	return strings.TrimRight(sanitizeANSI(out), "\n"), nil
 }
 
 func (r *CommandRunner) PaneExists(ctx context.Context, paneID string) (bool, error) {
@@ -109,4 +109,67 @@ func runTmux(ctx context.Context, args ...string) (string, error) {
 
 func isPaneMissing(err error) bool {
 	return strings.Contains(err.Error(), "can't find pane") || strings.Contains(err.Error(), "can't find window")
+}
+
+func sanitizeANSI(s string) string {
+	var out strings.Builder
+	out.Grow(len(s))
+
+	for i := 0; i < len(s); {
+		if s[i] != '\x1b' {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+
+		if i+1 >= len(s) {
+			break
+		}
+
+		switch s[i+1] {
+		case '[':
+			j := i + 2
+			for j < len(s) && !isCSIFinal(s[j]) {
+				j++
+			}
+			if j >= len(s) {
+				return out.String()
+			}
+			if s[j] == 'm' && isSafeSGR(s[i+2:j]) {
+				out.WriteString(s[i : j+1])
+			}
+			i = j + 1
+		case ']':
+			i = skipOSC(s, i+2)
+		default:
+			i += 2
+		}
+	}
+
+	return out.String()
+}
+
+func isCSIFinal(b byte) bool {
+	return b >= 0x40 && b <= 0x7e
+}
+
+func isSafeSGR(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if (s[i] < '0' || s[i] > '9') && s[i] != ';' && s[i] != ':' {
+			return false
+		}
+	}
+	return true
+}
+
+func skipOSC(s string, start int) int {
+	for i := start; i < len(s); i++ {
+		if s[i] == '\a' {
+			return i + 1
+		}
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '\\' {
+			return i + 2
+		}
+	}
+	return len(s)
 }

@@ -18,6 +18,8 @@ type Server struct {
 	server       *sdkmcp.Server
 }
 
+var falseBool = false
+
 func New(store *state.Store, runner tmux.Runner, historyLines int, logger *slog.Logger) *Server {
 	s := &Server{
 		store:        store,
@@ -27,8 +29,12 @@ func New(store *state.Store, runner tmux.Runner, historyLines int, logger *slog.
 
 	s.server = sdkmcp.NewServer(&sdkmcp.Implementation{
 		Name:    "tmuxmcpd",
+		Title:   "tmuxmcp Shared Pane Server",
 		Version: "0.1.0",
-	}, &sdkmcp.ServerOptions{Logger: logger})
+	}, &sdkmcp.ServerOptions{
+		Instructions: "Use this server to inspect one user-selected tmux pane. Call get_active_pane first to confirm a pane is currently shared. Call read_active_pane to read the latest plain-text terminal output from that pane, such as logs, command output, test failures, or a running program's screen during debugging. MCP access is read-only, and the shared-pane selection is in-memory only, so restarting tmuxmcpd clears it.",
+		Logger:       logger,
+	})
 
 	s.registerTools()
 	return s
@@ -41,12 +47,28 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) registerTools() {
 	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
 		Name:        "get_active_pane",
-		Description: "Get the currently shared tmux pane id and selection timestamp.",
+		Title:       "Get Active Shared Pane",
+		Description: "Check whether a tmux pane is currently shared and return its pane id plus selection timestamp.",
+		Annotations: &sdkmcp.ToolAnnotations{
+			Title:           "Get Active Shared Pane",
+			ReadOnlyHint:    true,
+			IdempotentHint:  true,
+			DestructiveHint: &falseBool,
+			OpenWorldHint:   &falseBool,
+		},
 	}, s.handleGetActivePane)
 
 	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
 		Name:        "read_active_pane",
-		Description: "Read a fresh plain-text snapshot of the currently shared tmux pane.",
+		Title:       "Read Shared Pane Output",
+		Description: "Read the latest plain-text output from the currently shared tmux pane, such as logs, command output, or a running program's screen.",
+		Annotations: &sdkmcp.ToolAnnotations{
+			Title:           "Read Shared Pane Output",
+			ReadOnlyHint:    true,
+			IdempotentHint:  true,
+			DestructiveHint: &falseBool,
+			OpenWorldHint:   &falseBool,
+		},
 	}, s.handleReadActivePane)
 }
 

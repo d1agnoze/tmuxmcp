@@ -67,8 +67,9 @@ The client:
 
 - lists panes across tmux sessions in a scrollable table
 - shows a live ANSI-colored preview for the highlighted pane in a panel below the table, with pane metadata kept above the scrollable viewport
+- opens the preview at the bottom of the captured pane content so older lines are reached by scrolling up
 - marks the currently shared pane with `*`
-- lets you switch focus with `Tab`, move the table with arrow keys or `j`/`k`, scroll the preview with the same keys or the mouse wheel, share with `Enter`, unshare with `u`, or quit with `q`
+- lets you switch focus with `Tab`, move the table with arrow keys or `j`/`k`, scroll the preview with the same keys or the mouse wheel when it is hovered or focused, share with `Enter`, unshare with `u`, or quit with `q`
 
 ## HTTP control API
 
@@ -92,13 +93,43 @@ Clears the shared pane.
 
 ## MCP tools
 
+During MCP initialization, the server also advertises server-level instructions that tell clients to use `get_active_pane` to confirm a pane is shared and `read_active_pane` to inspect the latest shared terminal output during debugging.
+
 ### `get_active_pane`
 
-Returns the current shared pane id and selection time, or a clear message if no pane is shared.
+Checks whether a pane is currently shared and returns its pane id plus selection time, or a clear message if no pane is shared.
+
+Advertised tool metadata:
+
+- title: `Get Active Shared Pane`
+- description: explicitly frames this as the check for whether a shared pane exists
+- annotations: read-only, idempotent, non-destructive, closed-world
 
 ### `read_active_pane`
 
-Captures a fresh plain-text snapshot of the shared pane. If the pane disappeared, the server clears the selection and returns a clear message.
+Reads the latest plain-text output from the shared pane. This is intended for things like live logs, command output, test failures, or the current terminal screen while debugging. If the pane disappeared, the server clears the selection and returns a clear message.
+
+Advertised tool metadata:
+
+- title: `Read Shared Pane Output`
+- description: explicitly frames this as the entry point for logs, command output, test failures, and live terminal state
+- annotations: read-only, idempotent, non-destructive, closed-world
+
+Typical host/client behavior:
+
+- call `get_active_pane` first to confirm that a pane is currently shared
+- call `read_active_pane` when the user asks to inspect logs, terminal output, or the current state of the shared session
+
+## MCP metadata
+
+The server exposes the following MCP metadata to connected clients during initialization:
+
+- server name: `tmuxmcpd`
+- server title: `tmuxmcp Shared Pane Server`
+- server version: `0.1.0`
+- server instructions: describe that the server is for inspecting one user-selected tmux pane, that clients should usually call `get_active_pane` before `read_active_pane`, and that MCP access is read-only and the shared selection is in-memory only
+
+This matters because many MCP hosts use server instructions plus each tool's name, description, schema, title, and annotations to decide when a tool is relevant.
 
 ## tmux keybinding example
 
@@ -128,6 +159,8 @@ tmux popup -E 'go run ./cmd/tmuxmcp --server http://127.0.0.1:46321'
 
 - scroll through the pane table
 - update the preview when the highlighted row changes
+- keep preview metadata fixed above the scrollable preview body
+- open the preview at the latest lines and let you scroll upward for older output
 - mark the currently shared pane with `*`
 - select the highlighted pane to share with `Enter`
 - clear the shared pane with `u`
@@ -141,7 +174,7 @@ curl -X POST http://127.0.0.1:46321/active-pane -H 'Content-Type: application/js
 curl -X DELETE http://127.0.0.1:46321/active-pane
 ```
 
-6. Verify MCP from a host/client by calling `get_active_pane` and `read_active_pane` against the stdio server.
+6. Verify MCP from a host/client by calling `get_active_pane` and `read_active_pane` against the stdio server, and confirm that `read_active_pane` returns the current shared pane output.
 
 7. Inspect daemon logs if anything fails:
 
@@ -153,7 +186,10 @@ less tmuxmcpd.log
 
 - The popup client talks to the local HTTP server only.
 - The popup UI uses `github.com/charmbracelet/bubbletea` with `bubbles/table` and `bubbles/viewport`.
+- Popup previews preserve ANSI styling from tmux but strip non-styling control sequences before rendering.
 - MCP traffic uses `stdio` only in v1.
 - MCP transport behavior comes from the official Go SDK `StdioTransport`, which uses newline-delimited JSON on stdin/stdout.
+- `read_active_pane` is the MCP entry point for inspecting the current shared terminal output, including logs and command results.
+- The server also publishes initialize-time instructions so MCP hosts can infer that `get_active_pane` is the existence check and `read_active_pane` is the log/output reader.
 - `tmuxmcpd` logs to a file so stdout stays reserved for MCP traffic. The default log path is `tmuxmcpd.log`.
 - No localhost auth is implemented in v1.

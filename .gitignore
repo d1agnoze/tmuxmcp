@@ -33,3 +33,4 @@ go.work.sum
 
 *log
 build
+opencode.*

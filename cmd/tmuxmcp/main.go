@@ -33,7 +33,6 @@ var (
 	panelStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	panelFocusedStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("86"))
 	panelMutedStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238"))
-	panelHeaderStyle   = lipgloss.NewStyle().Padding(0, 0, 1, 0).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
 	previewHeaderStyle = lipgloss.NewStyle().Padding(0, 0, 1, 0).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
 )
 
@@ -46,6 +45,13 @@ type activePaneResponse struct {
 type panePreview struct {
 	text string
 	err  error
+}
+
+type rect struct {
+	x int
+	y int
+	w int
+	h int
 }
 
 type statusKind int
@@ -72,6 +78,7 @@ type tuiModel struct {
 	status     string
 	statusTyp  statusKind
 	focus      focusTarget
+	previewBox rect
 	quitting   bool
 }
 
@@ -165,7 +172,7 @@ func newTUIModel(serverURL string, panes []tmux.Pane, previews map[string]panePr
 		focus:     focusTable,
 	}
 	m.syncFocus()
-	m.syncPreview()
+	m.syncPreview(true)
 	return m
 }
 
@@ -224,7 +231,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case tea.MouseMsg:
-		if tea.MouseEvent(msg).IsWheel() {
+		if tea.MouseEvent(msg).IsWheel() && m.isInsidePreview(tea.MouseEvent(msg).X, tea.MouseEvent(msg).Y) {
 			m.focus = focusPreview
 			m.syncFocus()
 			var cmd tea.Cmd
@@ -243,7 +250,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	if m.table.Cursor() != prev {
-		m.syncPreview()
+		m.syncPreview(true)
 	}
 	return m, cmd
 }
@@ -268,36 +275,31 @@ func (m *tuiModel) resize() {
 		return
 	}
 
-	panelWidth := max(30, m.width-4)
+	panelWidth := max(1, m.width-2)
 	headerHeight := lipgloss.Height(headerStyle.Render("tmuxmcp"))
 	footerHeight := lipgloss.Height(m.footerView())
-	bodyHeight := m.height - headerHeight - footerHeight
-	if bodyHeight < 8 {
-		bodyHeight = 8
-	}
-
-	const (
-		tableChrome   = 5
-		previewChrome = 4
-	)
-
-	scrollBudget := max(2, bodyHeight-tableChrome-previewChrome)
+	bodyHeight := max(2, m.height-headerHeight-footerHeight)
+	tableInnerWidth := max(1, panelWidth-2)
+	previewHeaderHeight := lipgloss.Height(renderPreviewHeader(m.previewHdr, tableInnerWidth))
+	scrollBudget := max(2, bodyHeight-(2+2+previewHeaderHeight))
 	tableHeight := clamp(scrollBudget/3, 1, max(1, scrollBudget-1))
 	previewHeight := max(1, scrollBudget-tableHeight)
+	prevOffset := m.preview.YOffset
 
-	m.table.SetWidth(panelWidth - 2)
+	m.table.SetWidth(tableInnerWidth)
 	m.table.SetHeight(tableHeight)
-	m.table.SetColumns(tableColumns(panelWidth - 2))
+	m.table.SetColumns(tableColumns(tableInnerWidth))
 
-	m.preview.Width = max(10, panelWidth-2)
+	m.preview.Width = tableInnerWidth
 	m.preview.Height = previewHeight
-	m.syncPreview()
+	m.preview.SetYOffset(clamp(prevOffset, 0, max(0, m.preview.TotalLineCount()-m.preview.VisibleLineCount())))
+	m.previewBox = rect{x: 1, y: headerHeight + tableHeight + 2, w: panelWidth, h: previewHeight + previewHeaderHeight + 2}
 }
 
 func (m *tuiModel) bodyView() string {
 	panelWidth := m.table.Width() + 2
 	if panelWidth <= 2 {
-		panelWidth = max(30, m.width-4)
+		panelWidth = max(1, m.width-2)
 	}
 
 	tablePanelStyle := panelMutedStyle
@@ -311,7 +313,7 @@ func (m *tuiModel) bodyView() string {
 	}
 
 	tableBody := lipgloss.JoinVertical(lipgloss.Left, m.table.View())
-	previewBody := lipgloss.JoinVertical(lipgloss.Left, renderPreviewHeader(m.previewHdr), m.preview.View())
+	previewBody := lipgloss.JoinVertical(lipgloss.Left, renderPreviewHeader(m.previewHdr, m.preview.Width), m.preview.View())
 	tablePanel := tablePanelStyle.Width(panelWidth).Render(tableBody)
 	previewPanel := previewPanelStyle.Width(panelWidth).Render(previewBody)
 	return lipgloss.JoinVertical(lipgloss.Left, tablePanel, previewPanel)
@@ -338,16 +340,18 @@ func (m tuiModel) footerView() string {
 		labelStyle.Render(shared),
 		labelStyle.Render(focusLabel),
 		statusRenderer(m.status),
-		helpStyle.Render("Keys: tab switch focus • up/down or j/k move/scroll • enter share • u unshare • q quit • mouse wheel scrolls preview when focused"),
+		helpStyle.Render("Keys: tab switch focus • up/down or j/k move/scroll • enter share • u unshare • q quit • mouse wheel scrolls preview when hovered or focused"),
 	)
 }
 
-func (m *tuiModel) syncPreview() {
+func (m *tuiModel) syncPreview(resetScroll bool) {
 	pane, ok := m.selectedPane()
 	if !ok {
 		m.previewHdr = "Preview"
 		m.preview.SetContent("No pane selected")
-		m.preview.GotoTop()
+		if resetScroll {
+			m.preview.GotoTop()
+		}
 		return
 	}
 
@@ -365,7 +369,9 @@ func (m *tuiModel) syncPreview() {
 	preview := m.previews[pane.ID]
 	if preview.err != nil {
 		m.preview.SetContent("preview unavailable: " + preview.err.Error())
-		m.preview.GotoTop()
+		if resetScroll {
+			m.preview.GotoTop()
+		}
 		return
 	}
 
@@ -373,8 +379,13 @@ func (m *tuiModel) syncPreview() {
 	if strings.TrimSpace(body) == "" {
 		body = "(empty pane)"
 	}
+	prevOffset := m.preview.YOffset
 	m.preview.SetContent(body)
-	m.preview.GotoBottom()
+	if resetScroll {
+		m.preview.GotoBottom()
+		return
+	}
+	m.preview.SetYOffset(clamp(prevOffset, 0, max(0, m.preview.TotalLineCount()-m.preview.VisibleLineCount())))
 }
 
 func (m *tuiModel) selectedPane() (tmux.Pane, bool) {
@@ -407,7 +418,7 @@ func (m *tuiModel) refreshRows() {
 		})
 	}
 	m.table.SetRows(rows)
-	m.syncPreview()
+	m.syncPreview(false)
 }
 
 func (m *tuiModel) syncFocus() {
@@ -552,13 +563,6 @@ func exitf(format string, args ...any) {
 	os.Exit(1)
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func clamp(v, low, high int) int {
 	if v < low {
 		return low
@@ -570,21 +574,38 @@ func clamp(v, low, high int) int {
 }
 
 func tableColumns(width int) []table.Column {
-	if width < 30 {
-		width = 30
+	usable := max(5, width-4)
+	mins := []int{1, 4, 4, 4, 5}
+	wants := []int{3, 7, 18, 18, 28}
+	widths := []int{1, 1, 1, 1, 1}
+	extra := usable - sumInts(widths)
+	for _, idx := range []int{1, 2, 3, 4, 0} {
+		for widths[idx] < mins[idx] && extra > 0 {
+			widths[idx]++
+			extra--
+		}
+	}
+	for extra > 0 {
+		advanced := false
+		for i := range widths {
+			if widths[i] >= wants[i] || extra == 0 {
+				continue
+			}
+			widths[i]++
+			extra--
+			advanced = true
+		}
+		if !advanced {
+			break
+		}
 	}
 
-	paneWidth := 7
-	sessionWidth := clamp(width/5, 10, 24)
-	windowWidth := clamp(width/4, 12, 28)
-	titleWidth := max(10, width-3-paneWidth-sessionWidth-windowWidth-8)
-
 	return []table.Column{
-		{Title: "*", Width: 3},
-		{Title: "Pane", Width: paneWidth},
-		{Title: "Session", Width: sessionWidth},
-		{Title: "Window", Width: windowWidth},
-		{Title: "Title", Width: titleWidth},
+		{Title: "*", Width: widths[0]},
+		{Title: "Pane", Width: widths[1]},
+		{Title: "Session", Width: widths[2]},
+		{Title: "Window", Width: widths[3]},
+		{Title: "Title", Width: widths[4]},
 	}
 }
 
@@ -598,11 +619,16 @@ func tableStyles(focused bool) table.Styles {
 	return styles
 }
 
-func renderPreviewHeader(header string) string {
+func renderPreviewHeader(header string, width int) string {
 	parts := strings.Split(header, "  |  ")
 	if len(parts) == 0 {
 		return previewHeaderStyle.Render(metaTitleStyle.Render("Preview"))
 	}
+	if width <= 0 {
+		width = 1
+	}
+
+	parts = fitPreviewHeader(parts, width)
 
 	out := make([]string, 0, len(parts))
 	for i, part := range parts {
@@ -616,6 +642,61 @@ func renderPreviewHeader(header string) string {
 	return previewHeaderStyle.Render(strings.Join(out, "  |  "))
 }
 
-func renderPanelHeader(title string) string {
-	return panelHeaderStyle.Render(metaTitleStyle.Render(title))
+func fitPreviewHeader(parts []string, width int) []string {
+	if len(parts) == 0 {
+		return []string{"Preview"}
+	}
+
+	fit := make([]string, 0, len(parts))
+	for _, part := range parts {
+		candidate := append(append([]string(nil), fit...), part)
+		if lipgloss.Width(strings.Join(candidate, "  |  ")) <= width {
+			fit = candidate
+			continue
+		}
+		if len(fit) == 0 {
+			return []string{truncateText(part, width)}
+		}
+		remaining := width - lipgloss.Width(strings.Join(fit, "  |  ")) - lipgloss.Width("  |  ")
+		if remaining > 1 {
+			fit = append(fit, truncateText(part, remaining))
+		}
+		return fit
+	}
+
+	return fit
+}
+
+func truncateText(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+
+	runes := []rune(s)
+	for i := len(runes); i > 0; i-- {
+		candidate := string(runes[:i]) + "…"
+		if lipgloss.Width(candidate) <= width {
+			return candidate
+		}
+	}
+
+	return "…"
+}
+
+func sumInts(v []int) int {
+	out := 0
+	for _, n := range v {
+		out += n
+	}
+	return out
+}
+
+func (m tuiModel) isInsidePreview(x, y int) bool {
+	return x >= m.previewBox.x && x < m.previewBox.x+m.previewBox.w && y >= m.previewBox.y && y < m.previewBox.y+m.previewBox.h
 }
