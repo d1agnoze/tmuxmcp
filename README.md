@@ -1,77 +1,254 @@
 # tmuxmcp
 
-`tmuxmcp` is a small Linux-first prototype for sharing one tmux pane with a coding agent through MCP.
+**Share a tmux pane with your AI coding agent — in real time.**
 
-## Components
+`tmuxmcp` lets you point a coding agent (e.g. Claude, Cursor, Copilot) at a specific tmux pane so it can read live terminal output — logs, test failures, command results — without you having to copy-paste anything.
 
-- `tmuxmcpd`: Go daemon that exposes:
-  - MCP over `stdio` using the official `github.com/modelcontextprotocol/go-sdk`
-  - local HTTP control API on `127.0.0.1`
-- `tmuxmcp`: tmux popup client built with Bubble Tea that lists panes in a table, previews the highlighted pane, and selects which pane is shared
+---
 
-## v1 Scope
+## Table of Contents
 
-- one shared pane at a time
-- read-only MCP tools
-- plain-text pane snapshots
-- no persistence across restarts
-- Linux first
+- [How It Works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Popup Client Usage](#popup-client-usage)
+- [MCP Server Setup](#mcp-server-setup)
+- [Configuration Reference](#configuration-reference)
+- [HTTP API Reference](#http-api-reference)
+- [MCP Tools Reference](#mcp-tools-reference)
+- [Development](#development)
 
-## Build
+---
 
-```bash
-go build ./...
+## How It Works
+
+```
+┌──────────────────────────────────────────────────────┐
+│  tmux                                                │
+│  ┌─────────────────┐   ┌──────────────────────────┐ │
+│  │  your terminal  │   │  tmuxmcp popup (s key)   │ │
+│  │  (logs, tests)  │   │  [select pane to share]  │ │
+│  └────────┬────────┘   └────────────┬─────────────┘ │
+│           │ pane output             │ HTTP           │
+│           └──────────┐  ┌──────────┘               │
+│                      ▼  ▼                           │
+│               ┌─────────────┐                       │
+│               │  tmuxmcpd   │ ◄── MCP stdio ──► AI  │
+│               │   (daemon)  │                       │
+│               └─────────────┘                       │
+└──────────────────────────────────────────────────────┘
 ```
 
-## Install
+1. **`tmuxmcpd`** is a background daemon. It runs an MCP server (over `stdio`) and a small HTTP control API (local only).
+2. **`tmuxmcp`** is a popup TUI client (launched with a tmux keybinding). Use it to pick which pane to share.
+3. Once a pane is shared, your AI agent can call `get_active_pane` / `read_active_pane` via MCP to read the live terminal output.
 
-Install both binaries into your Go bin directory with `go install`:
+> **v1 limits:** one shared pane at a time · read-only · in-memory only (cleared on restart) · Linux first
+
+---
+
+## Requirements
+
+- **Go 1.22+** (for `go install`)
+- **tmux** (any reasonably modern version)
+- **Linux** (macOS may work but is untested)
+- An MCP-capable AI host (Claude Desktop, Cursor, VS Code with Copilot, etc.)
+
+---
+
+## Installation
+
+Install both binaries into your Go bin directory:
 
 ```bash
 go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcpd@latest
 go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcp@latest
 ```
 
-Make sure the Go bin directory is on your `PATH`:
+Make sure the Go bin directory is on your `PATH` (add to `~/.bashrc` or `~/.zshrc`):
 
 ```bash
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-If you use `GOBIN`, add that directory instead:
-
-```bash
-export PATH="$(go env GOBIN):$PATH"
-```
-
-Confirm both binaries are available:
+Verify the installation:
 
 ```bash
 tmuxmcpd --help
 tmuxmcp --help
 ```
 
-## tmux Setup
+---
 
-Add a binding like this to `~/.tmux.conf`:
+## Quick Start
+
+**Step 1 — Start the daemon** (run this once, e.g. in a background tmux pane):
+
+```bash
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+```
+
+**Step 2 — Add a tmux keybinding** to open the popup client (`~/.tmux.conf`):
 
 ```tmux
 bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
 ```
 
-Reload tmux after saving:
+Reload your tmux config:
 
 ```bash
 tmux source-file ~/.tmux.conf
 ```
 
-## Verify
+**Step 3 — Share a pane**: press `s` inside tmux, highlight the pane you want to share, press `Enter`.
+
+**Step 4 — Configure your AI host** — see [MCP Server Setup](#mcp-server-setup) below.
+
+**Step 5 — Ask your agent** to call `read_active_pane` to inspect the terminal output.
+
+---
+
+## Popup Client Usage
+
+Open the popup with your keybinding (e.g. `s`) from inside tmux.
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move selection up in the pane table |
+| `↓` / `j` | Move selection down in the pane table |
+| `Enter` | Share the highlighted pane |
+| `u` | Unshare the currently shared pane |
+| `Tab` | Switch focus between the table and preview panel |
+| `↑` / `↓` / scroll | Scroll the preview panel (when focused or hovered) |
+| `q` / `Ctrl+C` | Quit the popup |
+
+### What you see
+
+- **Pane table** — all tmux panes across all sessions. The currently shared pane is marked with `*`.
+- **Preview panel** — live ANSI-colored snapshot of the highlighted pane, anchored to the latest lines. Scroll up to see older output.
+
+---
+
+## MCP Server Setup
+
+`tmuxmcpd` speaks MCP over `stdio`. Configure your AI host to launch it as a subprocess.
+
+### Generic MCP config (`mcpServers`)
+
+```json
+{
+  "mcpServers": {
+    "tmuxmcpd": {
+      "command": "tmuxmcpd",
+      "args": [
+        "--listen", "127.0.0.1:46321",
+        "--history-lines", "500",
+        "--log-file", "tmuxmcpd.log"
+      ]
+    }
+  }
+}
+```
+
+> If your host does not inherit your shell `PATH`, replace `"tmuxmcpd"` with the full path (e.g. `/home/you/go/bin/tmuxmcpd`).
+
+After adding the config, restart or reload your MCP host. The agent will have access to two tools: `get_active_pane` and `read_active_pane`.
+
+**Typical agent flow:**
+
+1. Agent calls `get_active_pane` → confirms a pane is shared and gets its ID.
+2. Agent calls `read_active_pane` → reads the latest terminal output from that pane.
+
+---
+
+## Configuration Reference
+
+### `tmuxmcpd` flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen` | `127.0.0.1:46321` | Local HTTP control API address |
+| `--history-lines` | `500` | Lines of pane history exposed via MCP (range: 500–2000) |
+| `--log-file` | `tmuxmcpd.log` | Daemon log file path (stdout is reserved for MCP stdio traffic) |
+
+### `tmuxmcp` flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server` | *(required)* | HTTP base URL of the running `tmuxmcpd` instance |
+| `--preview-lines` | `8` | Number of lines shown in the pane preview panel |
+
+---
+
+## HTTP API Reference
+
+The local HTTP API is used by the popup client and can also be scripted with `curl`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/healthz` | Health check |
+| `GET` | `/active-pane` | Returns the currently shared pane (or empty if none) |
+| `POST` | `/active-pane` | Set the shared pane — body: `{"pane_id": "%3"}` |
+| `DELETE` | `/active-pane` | Clear the shared pane |
+
+**Example:**
+
+```bash
+# Check health
+curl http://127.0.0.1:46321/healthz
+
+# See current shared pane
+curl http://127.0.0.1:46321/active-pane
+
+# Share pane %3
+curl -X POST http://127.0.0.1:46321/active-pane \
+  -H 'Content-Type: application/json' \
+  -d '{"pane_id": "%3"}'
+
+# Clear the shared pane
+curl -X DELETE http://127.0.0.1:46321/active-pane
+```
+
+---
+
+## MCP Tools Reference
+
+The server advertises two read-only tools to connected MCP clients.
+
+### `get_active_pane`
+
+Returns the currently shared pane ID and selection time, or a message indicating no pane is shared.
+
+- **Use this first** to confirm a pane is available before reading output.
+- Annotations: read-only, idempotent, non-destructive.
+
+### `read_active_pane`
+
+Returns the latest plain-text output from the shared pane (logs, test results, command output, live terminal state). If the pane has disappeared, the selection is cleared automatically.
+
+- **Use this** when the user asks about terminal output, logs, or test failures.
+- Annotations: read-only, idempotent, non-destructive.
+
+---
+
+## Development
+
+**Build:**
+
+```bash
+go build ./...
+```
+
+**Test:**
 
 ```bash
 go test ./... && go build ./...
 ```
 
-Focused checks:
+**Focused package tests:**
 
 ```bash
 go test ./internal/config
@@ -80,212 +257,10 @@ go test ./internal/mcp
 go test -cover ./...
 ```
 
-## Run the server
-
-```bash
-tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
-```
-
-Flags:
-
-- `--listen`: local HTTP control address
-- `--history-lines`: MCP pane snapshot line limit, valid range `500..2000`
-- `--log-file`: daemon log path, default `tmuxmcpd.log`
-
-## Run the popup client
-
-Inside tmux:
-
-```bash
-tmux popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
-```
-
-Flags:
-
-- `--server`: local HTTP base URL for `tmuxmcpd`
-- `--preview-lines`: preview line count per pane, default `8`
-
-The client:
-
-- lists panes across tmux sessions in a scrollable table
-- shows a live ANSI-colored preview for the highlighted pane in a panel below the table, with pane metadata kept above the scrollable viewport
-- opens the preview at the bottom of the captured pane content so older lines are reached by scrolling up
-- marks the currently shared pane with `*`
-- lets you switch focus with `Tab`, move the table with arrow keys or `j`/`k`, scroll the preview with the same keys or the mouse wheel when it is hovered or focused, share with `Enter`, unshare with `u`, or quit with `q`
-
-## HTTP control API
-
-### `GET /active-pane`
-
-Returns whether a pane is currently shared.
-
-### `POST /active-pane`
-
-Request body:
-
-```json
-{ "pane_id": "%3" }
-```
-
-Sets the shared pane if that pane exists.
-
-### `DELETE /active-pane`
-
-Clears the shared pane.
-
-## MCP tools
-
-During MCP initialization, the server also advertises server-level instructions that tell clients to use `get_active_pane` to confirm a pane is shared and `read_active_pane` to inspect the latest shared terminal output during debugging.
-
-### `get_active_pane`
-
-Checks whether a pane is currently shared and returns its pane id plus selection time, or a clear message if no pane is shared.
-
-Advertised tool metadata:
-
-- title: `Get Active Shared Pane`
-- description: explicitly frames this as the check for whether a shared pane exists
-- annotations: read-only, idempotent, non-destructive, closed-world
-
-### `read_active_pane`
-
-Reads the latest plain-text output from the shared pane. This is intended for things like live logs, command output, test failures, or the current terminal screen while debugging. If the pane disappeared, the server clears the selection and returns a clear message.
-
-Advertised tool metadata:
-
-- title: `Read Shared Pane Output`
-- description: explicitly frames this as the entry point for logs, command output, test failures, and live terminal state
-- annotations: read-only, idempotent, non-destructive, closed-world
-
-Typical host/client behavior:
-
-- call `get_active_pane` first to confirm that a pane is currently shared
-- call `read_active_pane` when the user asks to inspect logs, terminal output, or the current state of the shared session
-
-## MCP metadata
-
-The server exposes the following MCP metadata to connected clients during initialization:
-
-- server name: `tmuxmcpd`
-- server title: `tmuxmcp Shared Pane Server`
-- server version: `0.1.0`
-- server instructions: describe that the server is for inspecting one user-selected tmux pane, that clients should usually call `get_active_pane` before `read_active_pane`, and that MCP access is read-only and the shared selection is in-memory only
-
-This matters because many MCP hosts use server instructions plus each tool's name, description, schema, title, and annotations to decide when a tool is relevant.
-
-## MCP Server Setup
-
-`tmuxmcpd` is a stdio MCP server. Start it from your MCP host by pointing the host at the `tmuxmcpd` binary.
-
-1. Install the binaries:
-
-```bash
-go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcpd@latest
-go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcp@latest
-```
-
-2. Confirm the binary is available:
-
-```bash
-tmuxmcpd --help
-```
-
-3. Add an MCP server entry in your host that runs:
-
-```bash
-tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
-```
-
-Example generic MCP config shape:
-
-```json
-{
-  "mcpServers": {
-    "tmuxmcpd": {
-      "command": "tmuxmcpd",
-      "args": [
-        "--listen",
-        "127.0.0.1:46321",
-        "--history-lines",
-        "500",
-        "--log-file",
-        "tmuxmcpd.log"
-      ]
-    }
-  }
-}
-```
-
-If your MCP host does not inherit your shell `PATH`, replace `tmuxmcpd` with its absolute path.
-
-4. Start or reload your MCP host.
-
-5. Inside tmux, open the popup client and share a pane before asking the host to inspect terminal output.
-
-Typical MCP flow:
-
-- call `get_active_pane` first
-- call `read_active_pane` after a pane has been shared
-
-## tmux keybinding example
-
-Add something like this to your tmux config after installing the binaries on your `PATH`:
-
-```tmux
-bind-key s popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
-```
-
-## Manual Testing
-
-1. Start the daemon:
-
-```bash
-tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
-```
-
-2. Inside tmux, open a few panes with visible output.
-
-3. Launch the popup client:
-
-```bash
-tmux popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'
-```
-
-4. Verify the popup can:
-
-- scroll through the pane table
-- update the preview when the highlighted row changes
-- keep preview metadata fixed above the scrollable preview body
-- open the preview at the latest lines and let you scroll upward for older output
-- mark the currently shared pane with `*`
-- select the highlighted pane to share with `Enter`
-- clear the shared pane with `u`
-
-5. Verify the local HTTP control API:
-
-```bash
-curl http://127.0.0.1:46321/healthz
-curl http://127.0.0.1:46321/active-pane
-curl -X POST http://127.0.0.1:46321/active-pane -H 'Content-Type: application/json' -d '{"pane_id":"%3"}'
-curl -X DELETE http://127.0.0.1:46321/active-pane
-```
-
-6. Verify MCP from a host/client by calling `get_active_pane` and `read_active_pane` against the stdio server, and confirm that `read_active_pane` returns the current shared pane output.
-
-7. Inspect daemon logs if anything fails:
-
-```bash
-less tmuxmcpd.log
-```
-
-## Notes
-
-- The popup client talks to the local HTTP server only.
-- The popup UI uses `github.com/charmbracelet/bubbletea` with `bubbles/table` and `bubbles/viewport`.
-- Popup previews preserve ANSI styling from tmux but strip non-styling control sequences before rendering.
-- MCP traffic uses `stdio` only in v1.
-- MCP transport behavior comes from the official Go SDK `StdioTransport`, which uses newline-delimited JSON on stdin/stdout.
-- `read_active_pane` is the MCP entry point for inspecting the current shared terminal output, including logs and command results.
-- The server also publishes initialize-time instructions so MCP hosts can infer that `get_active_pane` is the existence check and `read_active_pane` is the log/output reader.
-- `tmuxmcpd` logs to a file so stdout stays reserved for MCP traffic. The default log path is `tmuxmcpd.log`.
-- No localhost auth is implemented in v1.
+**End-to-end manual check:**
+
+1. Start `tmuxmcpd`, open `tmuxmcp` in a tmux popup, share a pane.
+2. Verify table navigation, preview updates, pane select/unshare.
+3. Exercise the HTTP API with `curl` (see [HTTP API Reference](#http-api-reference)).
+4. Verify MCP tools from your AI host — `get_active_pane` then `read_active_pane`.
+5. Check `tmuxmcpd.log` if anything looks wrong.
