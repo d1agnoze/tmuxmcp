@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 func main() {
 	listenAddr := flag.String("listen", config.DefaultListenAddr, "HTTP listen address for local control API")
 	historyLines := flag.Int("history-lines", config.DefaultHistoryLine, "Number of pane history lines exposed to MCP (500-2000)")
-	logFile := flag.String("log-file", config.DefaultLogFile, "Path to tmuxmcpd log file")
+	logFile := flag.String("log-file", config.DefaultLogFilePath(), "Path to tmuxmcpd log file")
 	flag.Parse()
 
 	cfg := config.Server{
@@ -31,6 +32,11 @@ func main() {
 	}
 	if err := cfg.Validate(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "create log directory %q: %v\n", filepath.Dir(cfg.LogFile), err)
 		os.Exit(1)
 	}
 

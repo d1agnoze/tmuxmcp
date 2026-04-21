@@ -1,6 +1,37 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestDefaultLogFilePath(t *testing.T) {
+	t.Run("uses XDG_DATA_HOME when set", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", "/custom/data")
+		got := DefaultLogFilePath()
+		want := filepath.Join("/custom/data", "tmuxmcp", "tmuxmcpd.log")
+		if got != want {
+			t.Fatalf("DefaultLogFilePath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("falls back to ~/.local/share when XDG_DATA_HOME unset", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", "")
+		got := DefaultLogFilePath()
+		if !strings.HasSuffix(got, filepath.Join("tmuxmcp", "tmuxmcpd.log")) {
+			t.Fatalf("DefaultLogFilePath() = %q, expected suffix %q", got, filepath.Join("tmuxmcp", "tmuxmcpd.log"))
+		}
+		home, err := os.UserHomeDir()
+		if err == nil {
+			want := filepath.Join(home, ".local", "share", "tmuxmcp", "tmuxmcpd.log")
+			if got != want {
+				t.Fatalf("DefaultLogFilePath() = %q, want %q", got, want)
+			}
+		}
+	})
+}
 
 func TestServerValidate(t *testing.T) {
 	tests := []struct {

@@ -83,14 +83,14 @@ go test -cover ./...
 ## Run the server
 
 ```bash
-tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500
 ```
 
 Flags:
 
 - `--listen`: local HTTP control address
 - `--history-lines`: MCP pane snapshot line limit, valid range `500..2000`
-- `--log-file`: daemon log path, default `tmuxmcpd.log`
+- `--log-file`: daemon log path, default `~/.local/share/tmuxmcp/tmuxmcpd.log` (honours `$XDG_DATA_HOME`)
 
 ## Run the popup client
 
@@ -193,7 +193,7 @@ tmuxmcpd --help
 3. Add an MCP server entry in your host that runs:
 
 ```bash
-tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500
 ```
 
 Example generic MCP config shape:
@@ -207,9 +207,7 @@ Example generic MCP config shape:
         "--listen",
         "127.0.0.1:46321",
         "--history-lines",
-        "500",
-        "--log-file",
-        "tmuxmcpd.log"
+        "500"
       ]
     }
   }
@@ -275,7 +273,7 @@ curl -X DELETE http://127.0.0.1:46321/active-pane
 7. Inspect daemon logs if anything fails:
 
 ```bash
-less tmuxmcpd.log
+less ~/.local/share/tmuxmcp/tmuxmcpd.log
 ```
 
 ## Notes
@@ -287,5 +285,5 @@ less tmuxmcpd.log
 - MCP transport behavior comes from the official Go SDK `StdioTransport`, which uses newline-delimited JSON on stdin/stdout.
 - `read_active_pane` is the MCP entry point for inspecting the current shared terminal output, including logs and command results.
 - The server also publishes initialize-time instructions so MCP hosts can infer that `get_active_pane` is the existence check and `read_active_pane` is the log/output reader.
-- `tmuxmcpd` logs to a file so stdout stays reserved for MCP traffic. The default log path is `tmuxmcpd.log`.
+- `tmuxmcpd` logs to a file so stdout stays reserved for MCP traffic. The default log path is `~/.local/share/tmuxmcp/tmuxmcpd.log` (honours `$XDG_DATA_HOME`; the directory is created automatically if it does not exist).
 - No localhost auth is implemented in v1.
