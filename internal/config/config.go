@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -12,8 +14,22 @@ const (
 	MaxHistoryLine     = 2000
 	MinHistoryLine     = 500
 	DefaultPreviewLine = 8
-	DefaultLogFile     = "tmuxmcpd.log"
 )
+
+// DefaultLogFilePath returns the default path for the tmuxmcpd log file.
+// It honours $XDG_DATA_HOME when set; otherwise it falls back to
+// ~/.local/share/tmuxmcp/tmuxmcpd.log per the XDG Base Directory Specification.
+func DefaultLogFilePath() string {
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "tmuxmcpd.log"
+		}
+		dataHome = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dataHome, "tmuxmcp", "tmuxmcpd.log")
+}
 
 type Server struct {
 	ListenAddr   string

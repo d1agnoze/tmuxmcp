@@ -86,7 +86,7 @@ tmuxmcp --help
 **Step 1 — Start the daemon** (run this once, e.g. in a background tmux pane):
 
 ```bash
-tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log
+tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500
 ```
 
 **Step 2 — Add a tmux keybinding** to open the popup client (`~/.tmux.conf`):
@@ -145,8 +145,7 @@ Open the popup with your keybinding (e.g. `s`) from inside tmux.
       "command": "tmuxmcpd",
       "args": [
         "--listen", "127.0.0.1:46321",
-        "--history-lines", "500",
-        "--log-file", "tmuxmcpd.log"
+        "--history-lines", "500"
       ]
     }
   }
@@ -172,7 +171,7 @@ After adding the config, restart or reload your MCP host. The agent will have ac
 |------|---------|-------------|
 | `--listen` | `127.0.0.1:46321` | Local HTTP control API address |
 | `--history-lines` | `500` | Lines of pane history exposed via MCP (range: 500–2000) |
-| `--log-file` | `tmuxmcpd.log` | Daemon log file path (stdout is reserved for MCP stdio traffic) |
+| `--log-file` | `~/.local/share/tmuxmcp/tmuxmcpd.log` | Daemon log file path — honours `$XDG_DATA_HOME`; directory is created automatically (stdout is reserved for MCP stdio traffic) |
 
 ### `tmuxmcp` flags
 
@@ -263,4 +262,4 @@ go test -cover ./...
 2. Verify table navigation, preview updates, pane select/unshare.
 3. Exercise the HTTP API with `curl` (see [HTTP API Reference](#http-api-reference)).
 4. Verify MCP tools from your AI host — `get_active_pane` then `read_active_pane`.
-5. Check `tmuxmcpd.log` if anything looks wrong.
+5. Check `~/.local/share/tmuxmcp/tmuxmcpd.log` if anything looks wrong.

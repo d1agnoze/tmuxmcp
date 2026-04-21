@@ -10,7 +10,7 @@
 - Build everything: `go build ./...`
 - Run tests and build in one pass: `go test ./... && go build ./...`
 - Install binaries: `go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcpd@latest && go install github.com/d1agnoze/tmuxmcp/cmd/tmuxmcp@latest`
-- Run the server locally: `tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500 --log-file tmuxmcpd.log`
+- Run the server locally: `tmuxmcpd --listen 127.0.0.1:46321 --history-lines 500`
 - Run the popup client from inside tmux: `tmux popup -w 90% -h 85% -E 'tmuxmcp --server http://127.0.0.1:46321'`
 
 ## Runtime Boundaries
@@ -22,7 +22,7 @@
 - Treat `read_active_pane` as the tool for reading the current shared terminal output, including logs, test failures, command output, or a running program's screen during debugging.
 - Both tools advertise read-only, idempotent, non-destructive, closed-world annotations plus human-readable titles.
 - `--history-lines` on `tmuxmcpd` is validated to `500..2000`; default is `500`.
-- `--log-file` on `tmuxmcpd` defaults to `tmuxmcpd.log`. Keep daemon and SDK logs off stdout because stdout is reserved for MCP stdio traffic.
+- `--log-file` on `tmuxmcpd` defaults to `~/.local/share/tmuxmcp/tmuxmcpd.log` (honours `$XDG_DATA_HOME`; the directory is created automatically). Keep daemon and SDK logs off stdout because stdout is reserved for MCP stdio traffic.
 - `tmuxmcp` also has `--preview-lines`; default is `8`.
 - Do not reintroduce custom MCP framing unless there is a strong reason. The SDK `StdioTransport` is the source of truth for stdio behavior and uses newline-delimited JSON rather than `Content-Length` framing.
 
